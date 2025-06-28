@@ -12,16 +12,14 @@ const dbReviews = new sqlite3.Database('./reviews.db');
 
 app.use(cors());
 app.use(bodyParser.json());
-app.use(express.json()); // double parse, but whatever
+app.use(express.json());
 
-// Log every request bro
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   console.log('Headers:', req.headers);
   next();
 });
 
-// DB table stuff (same as urs)
 dbProducts.run(`CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     category TEXT,
@@ -61,16 +59,11 @@ dbReviews.run(`CREATE TABLE IF NOT EXISTS reviews (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`);
 
-// product routes same as urs (not repeating)
-
-// Fix double POST /order & add detailed debug
 app.post('/order', (req, res) => {
   console.log('🔥 Received /order POST request');
   console.log('Body:', req.body);
 
   const { orderId, id, name, phone, location, items, total } = req.body;
-
-  // Use orderId or id whichever comes from frontend (fix ur frontend to be consistent plz)
   const finalId = orderId || id;
 
   if (!finalId || !name || !phone || !location || !items || !total) {
@@ -99,7 +92,6 @@ app.post('/order', (req, res) => {
     }
   );
 });
-// Add this below the POST /order route or anywhere before app.listen
 
 app.get('/orders', (req, res) => {
   dbOrders.all('SELECT * FROM orders ORDER BY id DESC', (err, rows) => {
@@ -107,7 +99,6 @@ app.get('/orders', (req, res) => {
       console.error('❌ DB error fetching orders:', err);
       return res.status(500).send('Failed to fetch orders');
     }
-    // items stored as JSON string, parse before sending
     const orders = rows.map(order => ({
       ...order,
       items: JSON.parse(order.items)
@@ -116,6 +107,43 @@ app.get('/orders', (req, res) => {
   });
 });
 
+app.get('/orders/history', (req, res) => {
+  dbOrders.all("SELECT * FROM orders WHERE status = 'completed' ORDER BY id DESC", (err, rows) => {
+    if (err) {
+      console.error('❌ Failed to fetch completed orders:', err);
+      return res.status(500).send('Error retrieving order history');
+    }
+    res.json(rows);
+  });
+});
+
+app.post('/mark-completed', (req, res) => {
+  const { orderId } = req.body;
+  if (!orderId) return res.status(400).send('Missing orderId');
+
+  dbOrders.run(
+    `UPDATE orders SET status = 'completed' WHERE id = ?`,
+    [orderId],
+    function (err) {
+      if (err) {
+        console.error('❌ Error updating order:', err);
+        return res.status(500).send('Failed to mark as completed');
+      }
+      res.json({ success: true });
+    }
+  );
+});
+
+app.delete('/orders/:id', (req, res) => {
+  const id = req.params.id;
+  dbOrders.run(`DELETE FROM orders WHERE id = ?`, [id], function (err) {
+    if (err) {
+      console.error('❌ Failed to delete order:', err);
+      return res.status(500).send('Failed to delete order');
+    }
+    res.json({ success: true });
+  });
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
