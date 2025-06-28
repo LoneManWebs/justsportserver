@@ -1,85 +1,65 @@
-const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
-const cors = require('cors');
-const bodyParser = require('body-parser');
+const express = require("express");
+const sqlite3 = require("sqlite3").verbose();
+const cors = require("cors");
+const bodyParser = require("body-parser");
+
 const app = express();
-const PORT = process.env.PORT || 4000;
+const db = new sqlite3.Database("orders.db");
 
-// Middleware
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: "10mb" }));
 
-// Connect DB
-const dbOrders = new sqlite3.Database('./orders.db', (err) => {
-  if (err) console.error('❌ DB error:', err.message);
-  else console.log('✅ Connected to orders.db');
-});
-
-// Create orders table
-dbOrders.run(`
+// ✅ Create the orders table with correct structure (includes 'items' as TEXT)
+db.run(`
   CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
     phone TEXT,
     location TEXT,
     items TEXT,
-    total TEXT,
-    status TEXT
+    total TEXT
   )
 `);
 
-// POST order
-app.post('/order', (req, res) => {
-  const { id, name, phone, location, items, total } = req.body;
-  console.log('🔥 Received /order POST request');
-  console.log('Body:', req.body);
+// ✅ Receive new order
+app.post("/order", (req, res) => {
+  console.log("🔥 Received /order POST request");
+  console.log("Body:", req.body);
 
-  const itemsString = JSON.stringify(items);
-  const status = 'Pending';
+  const { name, phone, location, items, total } = req.body;
 
-  const sql = `INSERT INTO orders (id, name, phone, location, items, total, status) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+  const itemsJSON = JSON.stringify(items); // Serialize items array
 
-  dbOrders.run(sql, [id, name, phone, location, itemsString, total, status], (err) => {
+  const query = `INSERT INTO orders (name, phone, location, items, total) VALUES (?, ?, ?, ?, ?)`;
+  const values = [name, phone, location, itemsJSON, total];
+
+  db.run(query, values, function (err) {
     if (err) {
-      console.error('❌ DB insert error on /order:', err);
-      res.status(500).send('Error saving order');
+      console.error("❌ DB insert error on /order:", err);
+      res.status(500).send("Error saving order");
     } else {
-      console.log('✅ Order saved');
-      res.status(200).send('Order saved');
+      console.log("✅ Order saved with ID:", this.lastID);
+      res.status(200).send({ orderId: this.lastID });
     }
   });
 });
 
-// GET all orders
-app.get('/orders', (req, res) => {
-  dbOrders.all(`SELECT * FROM orders`, (err, rows) => {
+// ✅ Retrieve all orders
+app.get("/orders", (req, res) => {
+  db.all("SELECT * FROM orders", (err, rows) => {
     if (err) {
-      console.error('❌ DB read error on /orders:', err);
-      res.status(500).send('Error fetching orders');
+      console.error("❌ DB fetch error:", err);
+      res.status(500).send("Error fetching orders");
     } else {
-      const orders = rows.map(order => ({
-        ...order,
-        items: order.items ? JSON.parse(order.items) : []
+      // Parse items JSON back to object
+      const parsed = rows.map(row => ({
+        ...row,
+        items: JSON.parse(row.items || "[]")
       }));
-      res.json(orders);
+      res.status(200).json(parsed);
     }
   });
 });
 
-// DELETE order
-app.delete('/order/:id', (req, res) => {
-  const id = req.params.id;
-  dbOrders.run(`DELETE FROM orders WHERE id = ?`, [id], function (err) {
-    if (err) {
-      console.error('❌ Delete error:', err);
-      res.status(500).send('Error deleting order');
-    } else {
-      console.log(`🗑️ Deleted order with ID: ${id}`);
-      res.sendStatus(200);
-    }
-  });
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
