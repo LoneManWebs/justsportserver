@@ -2,12 +2,10 @@ const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
 const cors = require("cors");
 const bodyParser = require("body-parser");
-const fs = require("fs");
 
 const app = express();
 const DB_FILE = "orders.db";
 
-// CORS config
 app.use(cors());
 app.use(bodyParser.json({ limit: "10mb" }));
 
@@ -17,7 +15,7 @@ function initializeDatabase() {
     const db = new sqlite3.Database(DB_FILE);
 
     db.serialize(() => {
-      // Create orders table with 'status'
+      // Orders table
       db.run(`
         CREATE TABLE IF NOT EXISTS orders (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +35,7 @@ function initializeDatabase() {
         console.log("✅ Orders table ready");
       });
 
-      // Create country_requests table
+      // Country requests table
       db.run(`
         CREATE TABLE IF NOT EXISTS country_requests (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,13 +53,14 @@ function initializeDatabase() {
         console.log("✅ Country_requests table ready");
       });
 
-      resolve(db);
+      resolve(db); // All tables ready
     });
   });
 }
 
-// Start the server
+// Start server after DB ready
 initializeDatabase().then(db => {
+
   // Place Order
   app.post("/order", (req, res) => {
     const { name, phone, location, items, total } = req.body;
@@ -83,7 +82,7 @@ initializeDatabase().then(db => {
     );
   });
 
-  // Get all orders
+  // All Orders
   app.get("/orders", (req, res) => {
     db.all("SELECT * FROM orders", [], (err, rows) => {
       if (err) return res.status(500).json({ error: "Database error" });
@@ -101,7 +100,7 @@ initializeDatabase().then(db => {
     });
   });
 
-  // Get order history (completed only)
+  // Completed Orders History
   app.get("/orders/history", (req, res) => {
     db.all("SELECT * FROM orders WHERE status = 'completed' ORDER BY created_at DESC", [], (err, rows) => {
       if (err) {
@@ -122,7 +121,7 @@ initializeDatabase().then(db => {
     });
   });
 
-  // Admin get all orders
+  // Admin: All Orders
   app.get("/admin/orders", (req, res) => {
     db.all("SELECT * FROM orders ORDER BY created_at DESC", [], (err, rows) => {
       if (err) {
@@ -143,7 +142,7 @@ initializeDatabase().then(db => {
     });
   });
 
-  // Mark order as completed
+  // Admin: Complete order
   app.post("/admin/orders/complete", (req, res) => {
     const { orderId } = req.body;
     if (!orderId) return res.status(400).json({ error: "Missing orderId" });
@@ -157,24 +156,25 @@ initializeDatabase().then(db => {
     });
   });
 
-  // Country Request Submit
+  // Country Request
   app.post("/country-requests", (req, res) => {
     const { email, country, message, cart } = req.body;
     const cartJSON = JSON.stringify(cart || []);
 
-    db.run(`
-      INSERT INTO country_requests (email, country, message, cart)
-      VALUES (?, ?, ?, ?)
-    `, [email, country, message, cartJSON], function (err) {
-      if (err) {
-        console.error("❌ Error saving country request:", err);
-        return res.status(500).send("Error saving request");
+    db.run(
+      `INSERT INTO country_requests (email, country, message, cart) VALUES (?, ?, ?, ?)`,
+      [email, country, message, cartJSON],
+      function (err) {
+        if (err) {
+          console.error("❌ Error saving country request:", err);
+          return res.status(500).send("Error saving request");
+        }
+        res.status(200).send({ success: true, id: this.lastID });
       }
-      res.status(200).send({ success: true, id: this.lastID });
-    });
+    );
   });
 
-  // Admin: Get all country requests
+  // Admin: Get country requests
   app.get("/api/reviews", (req, res) => {
     db.all("SELECT * FROM country_requests ORDER BY created_at DESC", [], (err, rows) => {
       if (err) {
