@@ -65,6 +65,24 @@ productsDB.run(`
 
 // Initialize & start server
 initializeDatabase().then(db => {
+app.get("/orders/history", (req, res) => {
+  db.all("SELECT * FROM orders WHERE status = 'completed' ORDER BY created_at DESC", [], (err, rows) => {
+    if (err) {
+      console.error("❌ Error fetching order history:", err);
+      return res.status(500).json({ error: "Database error" });
+    }
+
+    try {
+      const history = rows.map(row => ({
+        ...row,
+        items: JSON.parse(row.items || "[]"),
+      }));
+      res.json(history);
+    } catch (parseErr) {
+      res.status(500).json({ error: "Data processing error" });
+    }
+  });
+});
 
   // Order routes
   app.post("/order", (req, res) => {
