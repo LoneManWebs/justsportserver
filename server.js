@@ -162,7 +162,7 @@ app.post("/admin/orders/complete", (req, res) => {
   // In a real app you'd update a status column here
   res.json({ success: true, message: "Order marked as completed" });
 });
-    pp.post("/country-requests", (req, res) => {
+    app.post("/country-requests", (req, res) => {
   const { email, country, message, cart } = req.body;
 
   const cartJSON = JSON.stringify(cart || []);
