@@ -235,6 +235,11 @@ app.delete('/orders/:id', (req, res) => {
     res.json({ success: true, message: "Order deleted successfully" });
   });
 });
+app.delete('/orders/:orderId', (req, res) => {
+  const id = req.params.orderId;
+  // delete order from db by id
+  // send 200 if success, 404 if not found, etc
+});
 
   const PORT = process.env.PORT || 10000;
   app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
