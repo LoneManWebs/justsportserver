@@ -218,6 +218,24 @@ app.get("/orders/history", (req, res) => {
     });
   });
 
+  // DELETE an order by ID (for both pending & history)
+app.delete('/orders/:id', (req, res) => {
+  const orderId = req.params.id;
+
+  db.run(`DELETE FROM orders WHERE id = ?`, [orderId], function(err) {
+    if (err) {
+      console.error("❌ Failed to delete order:", err);
+      return res.status(500).json({ success: false, error: "Database error" });
+    }
+
+    if (this.changes === 0) {
+      return res.status(404).json({ success: false, error: "Order not found" });
+    }
+
+    res.json({ success: true, message: "Order deleted successfully" });
+  });
+});
+
   const PORT = process.env.PORT || 10000;
   app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
