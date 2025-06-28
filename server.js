@@ -12,76 +12,92 @@ function initializeDatabase() {
   return new Promise((resolve, reject) => {
     const db = new sqlite3.Database(DB_FILE);
 
-    // Create orders table first
-    db.run(`
-      CREATE TABLE IF NOT EXISTS orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        phone TEXT NOT NULL,
-        location TEXT NOT NULL,
-        items TEXT NOT NULL,
-        total TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `, (createErr) => {
-      if (createErr) {
-        console.error("❌ Table creation failed:", createErr);
-        return reject(createErr);
-      }
+    db.serialize(() => {  // <<< ADDED serialize to guarantee order
 
-      // NOW create country_requests table AND WAIT for callback properly
+      // Create orders table first
       db.run(`
-        CREATE TABLE IF NOT EXISTS country_requests (
+        CREATE TABLE IF NOT EXISTS orders (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          email TEXT,
-          country TEXT,
-          message TEXT,
-          cart TEXT,
+          name TEXT NOT NULL,
+          phone TEXT NOT NULL,
+          location TEXT NOT NULL,
+          items TEXT NOT NULL,
+          total TEXT NOT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-      `, (countryErr) => {
-        if (countryErr) {
-          console.error("❌ Country requests table creation failed:", countryErr);
-          return reject(countryErr);
+      `, (createErr) => {
+        if (createErr) {
+          console.error("❌ Table creation failed:", createErr);
+          return reject(createErr);
         }
 
-        // Verify schema by checking for items column
-        db.get(`
-          SELECT COUNT(*) AS exists 
-          FROM pragma_table_info('orders') 
-          WHERE name = 'items'
-        `, [], (err, row) => {
-          if (err || !row || row.exists === 0) {
-            console.log("⚠️ Schema mismatch detected, recreating table...");
-            db.close(() => {
-              fs.unlink(DB_FILE, () => {
-                const newDb = new sqlite3.Database(DB_FILE);
-                newDb.run(`
-                  CREATE TABLE orders (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    phone TEXT NOT NULL,
-                    location TEXT NOT NULL,
-                    items TEXT NOT NULL,
-                    total TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                  )
-                `, (err) => {
-                  if (err) return reject(err);
-                  console.log("✅ Created fresh database with correct schema");
-                  resolve(newDb);
+        // NOW create country_requests table
+        db.run(`      // <<< ADDED country_requests table creation
+          CREATE TABLE IF NOT EXISTS country_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            country TEXT,
+            message TEXT,
+            cart TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `, (countryErr) => {
+          if (countryErr) {
+            console.error("❌ Country requests table creation failed:", countryErr);
+            return reject(countryErr);
+          }
+
+          // Verify schema by checking for items column
+          db.get(`
+            SELECT COUNT(*) AS exists 
+            FROM pragma_table_info('orders') 
+            WHERE name = 'items'
+          `, [], (err, row) => {
+            if (err || !row || row.exists === 0) {
+              console.log("⚠️ Schema mismatch detected, recreating table...");
+              db.close(() => {
+                fs.unlink(DB_FILE, () => {
+                  const newDb = new sqlite3.Database(DB_FILE);
+                  newDb.serialize(() => {  // <<< ADDED serialize here too
+                    newDb.run(`
+                      CREATE TABLE orders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        phone TEXT NOT NULL,
+                        location TEXT NOT NULL,
+                        items TEXT NOT NULL,
+                        total TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                      )
+                    `);
+                    newDb.run(`      // <<< ADDED recreate country_requests table here too
+                      CREATE TABLE country_requests (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        email TEXT,
+                        country TEXT,
+                        message TEXT,
+                        cart TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                      )
+                    `, (err) => {
+                      if (err) return reject(err);
+                      console.log("✅ Created fresh database with correct schema");
+                      resolve(newDb);
+                    });
+                  });
                 });
               });
-            });
-          } else {
-            console.log("✅ Database schema verified");
-            resolve(db);
-          }
-        });
+            } else {
+              console.log("✅ Database schema verified");
+              resolve(db);
+            }
+          });
 
-      }); // end country_requests creation callback
+        }); // end country_requests creation callback
 
-    }); // end orders creation callback
+      }); // end orders creation callback
+
+    }); // end serialize
   });
 }
 
