@@ -28,6 +28,16 @@ function initializeDatabase() {
         console.error("❌ Table creation failed:", createErr);
         return reject(createErr);
       }
+db.run(`
+  CREATE TABLE IF NOT EXISTS country_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT,
+    country TEXT,
+    message TEXT,
+    cart TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )
+`);
 
       // Verify schema by checking for items column
       db.get(`
@@ -151,6 +161,46 @@ app.post("/admin/orders/complete", (req, res) => {
   
   // In a real app you'd update a status column here
   res.json({ success: true, message: "Order marked as completed" });
+});
+    pp.post("/country-requests", (req, res) => {
+  const { email, country, message, cart } = req.body;
+
+  const cartJSON = JSON.stringify(cart || []);
+  const query = `
+    INSERT INTO country_requests (email, country, message, cart)
+    VALUES (?, ?, ?, ?)
+  `;
+  db.run(query, [email, country, message, cartJSON], function (err) {
+    if (err) {
+      console.error("❌ Error saving country request:", err);
+      return res.status(500).send("Error saving request");
+    }
+    res.status(200).send({ success: true, id: this.lastID });
+  });
+});
+app.get("/api/reviews", (req, res) => {
+  db.all(`SELECT * FROM country_requests ORDER BY created_at DESC`, [], (err, rows) => {
+    if (err) {
+      console.error("❌ Error fetching reviews:", err);
+      return res.status(500).json({ error: "Database error" });
+    }
+
+    const parsed = rows.map(row => ({
+      ...row,
+      cart: row.cart ? JSON.parse(row.cart) : [],
+    }));
+    res.json(parsed);
+  });
+});
+app.delete("/api/reviews/:id", (req, res) => {
+  const reviewId = req.params.id;
+  db.run(`DELETE FROM country_requests WHERE id = ?`, [reviewId], function (err) {
+    if (err) {
+      console.error("❌ Error deleting review:", err);
+      return res.status(500).json({ success: false });
+    }
+    res.json({ success: true });
+  });
 });
     const PORT = process.env.PORT || 10000;
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
