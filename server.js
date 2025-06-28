@@ -12,30 +12,16 @@ const dbReviews = new sqlite3.Database('./reviews.db');
 
 app.use(cors());
 app.use(bodyParser.json());
-app.use(express.json()); // double parse but whatever
+app.use(express.json()); // double parse, but whatever
 
-// Log every request
+// Log every request bro
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   console.log('Headers:', req.headers);
   next();
 });
 
-// DB setup - drop and recreate orders table to avoid that freaky error
-dbOrders.serialize(() => {
-  dbOrders.run('DROP TABLE IF EXISTS orders');
-  dbOrders.run(`CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY,
-    name TEXT,
-    phone TEXT,
-    location TEXT,
-    items TEXT,
-    total TEXT,
-    status TEXT
-  )`);
-});
-
-// Other tables
+// DB table stuff (same as urs)
 dbProducts.run(`CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     category TEXT,
@@ -45,6 +31,16 @@ dbProducts.run(`CREATE TABLE IF NOT EXISTS products (
     image TEXT,
     description TEXT,
     specs TEXT
+)`);
+
+dbOrders.run(`CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    phone TEXT,
+    location TEXT,
+    items TEXT,
+    total TEXT,
+    status TEXT
 )`);
 
 dbRequests.run(`CREATE TABLE IF NOT EXISTS country_requests (
@@ -65,13 +61,16 @@ dbReviews.run(`CREATE TABLE IF NOT EXISTS reviews (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`);
 
-// POST /order route
+// product routes same as urs (not repeating)
+
+// Fix double POST /order & add detailed debug
 app.post('/order', (req, res) => {
   console.log('🔥 Received /order POST request');
   console.log('Body:', req.body);
 
   const { orderId, id, name, phone, location, items, total } = req.body;
 
+  // Use orderId or id whichever comes from frontend (fix ur frontend to be consistent plz)
   const finalId = orderId || id;
 
   if (!finalId || !name || !phone || !location || !items || !total) {
@@ -100,8 +99,24 @@ app.post('/order', (req, res) => {
     }
   );
 });
+// Add this below the POST /order route or anywhere before app.listen
 
-// Start server
+app.get('/orders', (req, res) => {
+  dbOrders.all('SELECT * FROM orders ORDER BY id DESC', (err, rows) => {
+    if (err) {
+      console.error('❌ DB error fetching orders:', err);
+      return res.status(500).send('Failed to fetch orders');
+    }
+    // items stored as JSON string, parse before sending
+    const orders = rows.map(order => ({
+      ...order,
+      items: JSON.parse(order.items)
+    }));
+    res.json(orders);
+  });
+});
+
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
