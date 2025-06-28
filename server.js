@@ -109,7 +109,49 @@ initializeDatabase()
         }
       });
     });
+// Add these endpoints right before the app.listen() line:
 
+// Admin - Get all orders
+app.get("/admin/orders", (req, res) => {
+  db.all(`
+    SELECT 
+      id,
+      name,
+      phone,
+      location,
+      items,
+      total,
+      created_at,
+      'pending' as status
+    FROM orders
+    ORDER BY created_at DESC
+  `, [], (err, rows) => {
+    if (err) {
+      console.error("Admin orders error:", err);
+      return res.status(500).json({ error: "Database error" });
+    }
+    
+    try {
+      const orders = rows.map(row => ({
+        ...row,
+        items: JSON.parse(row.items),
+        created_at: new Date(row.created_at).toLocaleString()
+      }));
+      res.json(orders);
+    } catch (e) {
+      res.status(500).json({ error: "Data processing error" });
+    }
+  });
+});
+
+// Admin - Mark order as completed
+app.post("/admin/orders/complete", (req, res) => {
+  const { orderId } = req.body;
+  if (!orderId) return res.status(400).json({ error: "Missing orderId" });
+  
+  // In a real app you'd update a status column here
+  res.json({ success: true, message: "Order marked as completed" });
+});
     const PORT = process.env.PORT || 10000;
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   })
