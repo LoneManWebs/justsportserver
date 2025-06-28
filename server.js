@@ -12,7 +12,7 @@ function initializeDatabase() {
   return new Promise((resolve, reject) => {
     const db = new sqlite3.Database(DB_FILE);
 
-    // First try to create table (will fail if exists)
+    // Create orders table first
     db.run(`
       CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,51 +28,60 @@ function initializeDatabase() {
         console.error("❌ Table creation failed:", createErr);
         return reject(createErr);
       }
-db.run(`
-  CREATE TABLE IF NOT EXISTS country_requests (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT,
-    country TEXT,
-    message TEXT,
-    cart TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )
-`);
 
-      // Verify schema by checking for items column
-      db.get(`
-        SELECT COUNT(*) AS exists 
-        FROM pragma_table_info('orders') 
-        WHERE name = 'items'
-      `, [], (err, row) => {
-        if (err || !row || row.exists === 0) {
-          console.log("⚠️ Schema mismatch detected, recreating table...");
-          db.close(() => {
-            fs.unlink(DB_FILE, () => {
-              const newDb = new sqlite3.Database(DB_FILE);
-              newDb.run(`
-                CREATE TABLE orders (
-                  id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  name TEXT NOT NULL,
-                  phone TEXT NOT NULL,
-                  location TEXT NOT NULL,
-                  items TEXT NOT NULL,
-                  total TEXT NOT NULL,
-                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-              `, (err) => {
-                if (err) return reject(err);
-                console.log("✅ Created fresh database with correct schema");
-                resolve(newDb);
+      // NOW create country_requests table AND WAIT for callback properly
+      db.run(`
+        CREATE TABLE IF NOT EXISTS country_requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT,
+          country TEXT,
+          message TEXT,
+          cart TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `, (countryErr) => {
+        if (countryErr) {
+          console.error("❌ Country requests table creation failed:", countryErr);
+          return reject(countryErr);
+        }
+
+        // Verify schema by checking for items column
+        db.get(`
+          SELECT COUNT(*) AS exists 
+          FROM pragma_table_info('orders') 
+          WHERE name = 'items'
+        `, [], (err, row) => {
+          if (err || !row || row.exists === 0) {
+            console.log("⚠️ Schema mismatch detected, recreating table...");
+            db.close(() => {
+              fs.unlink(DB_FILE, () => {
+                const newDb = new sqlite3.Database(DB_FILE);
+                newDb.run(`
+                  CREATE TABLE orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    location TEXT NOT NULL,
+                    items TEXT NOT NULL,
+                    total TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                  )
+                `, (err) => {
+                  if (err) return reject(err);
+                  console.log("✅ Created fresh database with correct schema");
+                  resolve(newDb);
+                });
               });
             });
-          });
-        } else {
-          console.log("✅ Database schema verified");
-          resolve(db);
-        }
-      });
-    });
+          } else {
+            console.log("✅ Database schema verified");
+            resolve(db);
+          }
+        });
+
+      }); // end country_requests creation callback
+
+    }); // end orders creation callback
   });
 }
 
@@ -85,7 +94,7 @@ initializeDatabase()
     // Order submission endpoint
     app.post("/order", (req, res) => {
       const { name, phone, location, items, total } = req.body;
-      
+
       if (!items || !Array.isArray(items)) {
         return res.status(400).json({ error: "Invalid items format" });
       }
@@ -107,7 +116,7 @@ initializeDatabase()
     app.get("/orders", (req, res) => {
       db.all("SELECT * FROM orders", [], (err, rows) => {
         if (err) return res.status(500).json({ error: "Database error" });
-        
+
         try {
           const orders = rows.map(row => ({
             ...row,
@@ -119,89 +128,95 @@ initializeDatabase()
         }
       });
     });
-// Add these endpoints right before the app.listen() line:
 
-// Admin - Get all orders
-app.get("/admin/orders", (req, res) => {
-  db.all(`
-    SELECT 
-      id,
-      name,
-      phone,
-      location,
-      items,
-      total,
-      created_at,
-      'pending' as status
-    FROM orders
-    ORDER BY created_at DESC
-  `, [], (err, rows) => {
-    if (err) {
-      console.error("Admin orders error:", err);
-      return res.status(500).json({ error: "Database error" });
-    }
-    
-    try {
-      const orders = rows.map(row => ({
-        ...row,
-        items: JSON.parse(row.items),
-        created_at: new Date(row.created_at).toLocaleString()
-      }));
-      res.json(orders);
-    } catch (e) {
-      res.status(500).json({ error: "Data processing error" });
-    }
-  });
-});
+    // Admin - Get all orders
+    app.get("/admin/orders", (req, res) => {
+      db.all(`
+        SELECT 
+          id,
+          name,
+          phone,
+          location,
+          items,
+          total,
+          created_at,
+          'pending' as status
+        FROM orders
+        ORDER BY created_at DESC
+      `, [], (err, rows) => {
+        if (err) {
+          console.error("Admin orders error:", err);
+          return res.status(500).json({ error: "Database error" });
+        }
 
-// Admin - Mark order as completed
-app.post("/admin/orders/complete", (req, res) => {
-  const { orderId } = req.body;
-  if (!orderId) return res.status(400).json({ error: "Missing orderId" });
-  
-  // In a real app you'd update a status column here
-  res.json({ success: true, message: "Order marked as completed" });
-});
+        try {
+          const orders = rows.map(row => ({
+            ...row,
+            items: JSON.parse(row.items),
+            created_at: new Date(row.created_at).toLocaleString()
+          }));
+          res.json(orders);
+        } catch (e) {
+          res.status(500).json({ error: "Data processing error" });
+        }
+      });
+    });
+
+    // Admin - Mark order as completed
+    app.post("/admin/orders/complete", (req, res) => {
+      const { orderId } = req.body;
+      if (!orderId) return res.status(400).json({ error: "Missing orderId" });
+
+      // In a real app you'd update a status column here
+      res.json({ success: true, message: "Order marked as completed" });
+    });
+
+    // Country requests POST endpoint
     app.post("/country-requests", (req, res) => {
-  const { email, country, message, cart } = req.body;
+      const { email, country, message, cart } = req.body;
 
-  const cartJSON = JSON.stringify(cart || []);
-  const query = `
-    INSERT INTO country_requests (email, country, message, cart)
-    VALUES (?, ?, ?, ?)
-  `;
-  db.run(query, [email, country, message, cartJSON], function (err) {
-    if (err) {
-      console.error("❌ Error saving country request:", err);
-      return res.status(500).send("Error saving request");
-    }
-    res.status(200).send({ success: true, id: this.lastID });
-  });
-});
-app.get("/api/reviews", (req, res) => {
-  db.all(`SELECT * FROM country_requests ORDER BY created_at DESC`, [], (err, rows) => {
-    if (err) {
-      console.error("❌ Error fetching reviews:", err);
-      return res.status(500).json({ error: "Database error" });
-    }
+      const cartJSON = JSON.stringify(cart || []);
+      const query = `
+        INSERT INTO country_requests (email, country, message, cart)
+        VALUES (?, ?, ?, ?)
+      `;
+      db.run(query, [email, country, message, cartJSON], function (err) {
+        if (err) {
+          console.error("❌ Error saving country request:", err);
+          return res.status(500).send("Error saving request");
+        }
+        res.status(200).send({ success: true, id: this.lastID });
+      });
+    });
 
-    const parsed = rows.map(row => ({
-      ...row,
-      cart: row.cart ? JSON.parse(row.cart) : [],
-    }));
-    res.json(parsed);
-  });
-});
-app.delete("/api/reviews/:id", (req, res) => {
-  const reviewId = req.params.id;
-  db.run(`DELETE FROM country_requests WHERE id = ?`, [reviewId], function (err) {
-    if (err) {
-      console.error("❌ Error deleting review:", err);
-      return res.status(500).json({ success: false });
-    }
-    res.json({ success: true });
-  });
-});
+    // Get all reviews for admin
+    app.get("/api/reviews", (req, res) => {
+      db.all(`SELECT * FROM country_requests ORDER BY created_at DESC`, [], (err, rows) => {
+        if (err) {
+          console.error("❌ Error fetching reviews:", err);
+          return res.status(500).json({ error: "Database error" });
+        }
+
+        const parsed = rows.map(row => ({
+          ...row,
+          cart: row.cart ? JSON.parse(row.cart) : [],
+        }));
+        res.json(parsed);
+      });
+    });
+
+    // Delete review by id
+    app.delete("/api/reviews/:id", (req, res) => {
+      const reviewId = req.params.id;
+      db.run(`DELETE FROM country_requests WHERE id = ?`, [reviewId], function (err) {
+        if (err) {
+          console.error("❌ Error deleting review:", err);
+          return res.status(500).json({ success: false });
+        }
+        res.json({ success: true });
+      });
+    });
+
     const PORT = process.env.PORT || 10000;
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   })
