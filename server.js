@@ -7,45 +7,14 @@ const fs = require("fs");
 const app = express();
 const DB_FILE = "orders.db";
 
-// Initialize database with auto-repair
+// Initialize database with proper error handling
 function initializeDatabase() {
   return new Promise((resolve, reject) => {
     const db = new sqlite3.Database(DB_FILE);
 
-    // First try to verify the schema
-    db.get("PRAGMA table_info(orders)", [], (err, result) => {
-      if (err || !result) {
-        console.log("ℹ️ No table found, creating fresh database");
-        createFreshDatabase(db).then(resolve).catch(reject);
-        return;
-      }
-
-      // Check for required columns
-      const requiredColumns = ['name', 'phone', 'location', 'items', 'total'];
-      const missingColumns = requiredColumns.filter(col => 
-        !result.some(column => column.name === col)
-      );
-
-      if (missingColumns.length > 0) {
-        console.log("⚠️ Missing columns detected, recreating table...");
-        db.close(() => {
-          fs.unlink(DB_FILE, () => {
-            const newDb = new sqlite3.Database(DB_FILE);
-            createFreshDatabase(newDb).then(resolve).catch(reject);
-          });
-        });
-      } else {
-        console.log("✅ Database schema is correct");
-        resolve(db);
-      }
-    });
-  });
-}
-
-function createFreshDatabase(db) {
-  return new Promise((resolve, reject) => {
+    // First try to create table (will fail if exists)
     db.run(`
-      CREATE TABLE orders (
+      CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         phone TEXT NOT NULL,
@@ -54,19 +23,50 @@ function createFreshDatabase(db) {
         total TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
-    `, (err) => {
-      if (err) {
-        console.error("❌ Failed to create table:", err);
-        reject(err);
-      } else {
-        console.log("✅ Created new database with correct schema");
-        resolve(db);
+    `, (createErr) => {
+      if (createErr) {
+        console.error("❌ Table creation failed:", createErr);
+        return reject(createErr);
       }
+
+      // Verify schema by checking for items column
+      db.get(`
+        SELECT COUNT(*) AS exists 
+        FROM pragma_table_info('orders') 
+        WHERE name = 'items'
+      `, [], (err, row) => {
+        if (err || !row || row.exists === 0) {
+          console.log("⚠️ Schema mismatch detected, recreating table...");
+          db.close(() => {
+            fs.unlink(DB_FILE, () => {
+              const newDb = new sqlite3.Database(DB_FILE);
+              newDb.run(`
+                CREATE TABLE orders (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  name TEXT NOT NULL,
+                  phone TEXT NOT NULL,
+                  location TEXT NOT NULL,
+                  items TEXT NOT NULL,
+                  total TEXT NOT NULL,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+              `, (err) => {
+                if (err) return reject(err);
+                console.log("✅ Created fresh database with correct schema");
+                resolve(newDb);
+              });
+            });
+          });
+        } else {
+          console.log("✅ Database schema verified");
+          resolve(db);
+        }
+      });
     });
   });
 }
 
-// Initialize the server
+// Start the server
 initializeDatabase()
   .then(db => {
     app.use(cors());
@@ -75,13 +75,19 @@ initializeDatabase()
     // Order submission endpoint
     app.post("/order", (req, res) => {
       const { name, phone, location, items, total } = req.body;
-      const itemsJSON = JSON.stringify(items);
+      
+      if (!items || !Array.isArray(items)) {
+        return res.status(400).json({ error: "Invalid items format" });
+      }
 
       db.run(
         "INSERT INTO orders (name, phone, location, items, total) VALUES (?, ?, ?, ?, ?)",
-        [name, phone, location, itemsJSON, total],
+        [name, phone, location, JSON.stringify(items), total],
         function(err) {
-          if (err) return res.status(500).send("Database error");
+          if (err) {
+            console.error("Database error:", err);
+            return res.status(500).json({ error: "Failed to save order" });
+          }
           res.json({ orderId: this.lastID });
         }
       );
@@ -90,8 +96,17 @@ initializeDatabase()
     // Get orders endpoint
     app.get("/orders", (req, res) => {
       db.all("SELECT * FROM orders", [], (err, rows) => {
-        if (err) return res.status(500).send("Database error");
-        res.json(rows.map(row => ({ ...row, items: JSON.parse(row.items) })));
+        if (err) return res.status(500).json({ error: "Database error" });
+        
+        try {
+          const orders = rows.map(row => ({
+            ...row,
+            items: JSON.parse(row.items)
+          }));
+          res.json(orders);
+        } catch (parseErr) {
+          res.status(500).json({ error: "Data processing error" });
+        }
       });
     });
 
@@ -99,6 +114,6 @@ initializeDatabase()
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   })
   .catch(err => {
-    console.error("❌ Fatal error during initialization:", err);
+    console.error("Fatal initialization error:", err);
     process.exit(1);
   });
