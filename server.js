@@ -6,7 +6,24 @@ const fs = require("fs");
 
 const app = express();
 const DB_FILE = "orders.db";
-
+db.serialize(() => {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS country_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT,
+      country TEXT,
+      message TEXT,
+      cart TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `, (err) => {
+    if (err) {
+      console.error("❌ Error creating country_requests table:", err);
+    } else {
+      console.log("✅ country_requests table ready");
+    }
+  });
+});
 // Initialize database with proper error handling
 function initializeDatabase() {
   return new Promise((resolve, reject) => {
