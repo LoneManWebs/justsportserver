@@ -78,11 +78,8 @@ productsDB.run(`
 // Initialize & start server
 initializeDatabase().then(db => {
 app.get("/orders/history", (req, res) => {
-  db.all("SELECT * FROM orders WHERE status = 'completed' ORDER BY created_at DESC", [], (err, rows) => {
-    if (err) {
-      console.error("❌ Error fetching order history:", err);
-      return res.status(500).json({ error: "Database error" });
-    }
+  db.all("SELECT * FROM order_history ORDER BY created_at DESC", [], (err, rows) => {
+    if (err) return res.status(500).json({ error: "Database error" });
 
     try {
       const history = rows.map(row => ({
@@ -91,10 +88,11 @@ app.get("/orders/history", (req, res) => {
       }));
       res.json(history);
     } catch (parseErr) {
-      res.status(500).json({ error: "Data processing error" });
+      res.status(500).json({ error: "Data parsing error" });
     }
   });
 });
+
 
   // Order routes
   app.post("/order", (req, res) => {
