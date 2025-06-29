@@ -146,7 +146,6 @@ app.get("/orders/history", (req, res) => {
   const { orderId } = req.body;
   if (!orderId) return res.status(400).json({ error: "Missing orderId" });
 
-  // 1. Get order from orders table
   db.get("SELECT * FROM orders WHERE id = ?", [orderId], (err, order) => {
     if (err || !order) {
       console.error("❌ Couldn't fetch order:", err);
@@ -155,17 +154,16 @@ app.get("/orders/history", (req, res) => {
 
     const { name, phone, location, items, total, created_at } = order;
 
-    // 2. Insert it into order_history
+    // 🧠 Important fix here ↓
     db.run(`
       INSERT INTO order_history (name, phone, location, items, total, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `, [name, phone, location, items, total, created_at], function (insertErr) {
+    `, [name, phone, location, JSON.stringify(JSON.parse(items)), total, created_at], function (insertErr) {
       if (insertErr) {
         console.error("❌ Insert to history failed:", insertErr);
         return res.status(500).json({ error: "Insert failed" });
       }
 
-      // 3. Delete from original orders
       db.run("DELETE FROM orders WHERE id = ?", [orderId], function (deleteErr) {
         if (deleteErr) {
           console.error("❌ Delete from orders failed:", deleteErr);
