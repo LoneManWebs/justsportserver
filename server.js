@@ -144,38 +144,23 @@ app.get("/orders/history", (req, res) => {
     });
   });
 
-    app.post('/admin/orders/complete', (req, res) => {
-    const { orderId } = req.body;
-    if (!orderId) return res.status(400).json({ error: 'Missing orderId' });
+    app.post("/admin/orders/complete", (req, res) => {
+  const { orderId } = req.body;
+  if (!orderId) return res.status(400).json({ error: "Missing orderId" });
 
-    db.get('SELECT * FROM orders WHERE id = ?', [orderId], (err, order) => {
-      if (err || !order) {
-        console.error("❌ Couldn't fetch order:", err);
-        return res.status(404).json({ error: 'Order not found' });
-      }
+  db.run("UPDATE orders SET status = 'completed' WHERE id = ?", [orderId], function (err) {
+    if (err) {
+      console.error("❌ Failed to update order status:", err);
+      return res.status(500).json({ error: "Database error" });
+    }
 
-      const { id, name, phone, location, items, total, created_at } = order;
+    if (this.changes === 0) {
+      return res.status(404).json({ error: "Order not found or already completed" });
+    }
 
-      db.run(`
-        INSERT INTO orders (id, name, phone, location, items, total, created_at, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'completed')
-      `, [id, name, phone, location, items, total, created_at], function (insertErr) {
-        if (insertErr) {
-          console.error("❌ Failed inserting into completed history:", insertErr);
-          return res.status(500).json({ error: 'Failed to archive order' });
-        }
-
-        db.run(`DELETE FROM orders WHERE id = ? AND status = 'pending'`, [orderId], function (deleteErr) {
-          if (deleteErr) {
-            console.error("❌ Failed deleting old order:", deleteErr);
-            return res.status(500).json({ error: 'Failed to remove original order' });
-          }
-
-          res.json({ success: true });
-        });
-      });
-    });
+    res.json({ success: true });
   });
+});
 
   // Country requests
   app.post("/country-requests", (req, res) => {
