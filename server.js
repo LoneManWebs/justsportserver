@@ -144,13 +144,36 @@ app.get("/orders/history", (req, res) => {
     });
   });
 
-  app.post("/admin/orders/complete", (req, res) => {
+    app.post('/admin/orders/complete', (req, res) => {
     const { orderId } = req.body;
-    if (!orderId) return res.status(400).json({ error: "Missing orderId" });
+    if (!orderId) return res.status(400).json({ error: 'Missing orderId' });
 
-    db.run("UPDATE orders SET status = 'completed' WHERE id = ?", [orderId], function (err) {
-      if (err) return res.status(500).json({ error: "Failed to update status" });
-      res.json({ success: true });
+    db.get('SELECT * FROM orders WHERE id = ?', [orderId], (err, order) => {
+      if (err || !order) {
+        console.error("❌ Couldn't fetch order:", err);
+        return res.status(404).json({ error: 'Order not found' });
+      }
+
+      const { id, name, phone, location, items, total, created_at } = order;
+
+      db.run(`
+        INSERT INTO orders (id, name, phone, location, items, total, created_at, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'completed')
+      `, [id, name, phone, location, items, total, created_at], function (insertErr) {
+        if (insertErr) {
+          console.error("❌ Failed inserting into completed history:", insertErr);
+          return res.status(500).json({ error: 'Failed to archive order' });
+        }
+
+        db.run(`DELETE FROM orders WHERE id = ? AND status = 'pending'`, [orderId], function (deleteErr) {
+          if (deleteErr) {
+            console.error("❌ Failed deleting old order:", deleteErr);
+            return res.status(500).json({ error: 'Failed to remove original order' });
+          }
+
+          res.json({ success: true });
+        });
+      });
     });
   });
 
