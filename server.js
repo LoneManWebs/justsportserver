@@ -142,29 +142,33 @@ app.get("/orders/history", (req, res) => {
     });
   });
 
-    app.post("/admin/orders/complete", (req, res) => {
+   app.post("/admin/orders/complete", (req, res) => {
   const { orderId } = req.body;
   if (!orderId) return res.status(400).json({ error: "Missing orderId" });
 
+  // 1. Get order from orders table
   db.get("SELECT * FROM orders WHERE id = ?", [orderId], (err, order) => {
-    if (err || !order) return res.status(404).json({ error: "Order not found" });
+    if (err || !order) {
+      console.error("❌ Couldn't fetch order:", err);
+      return res.status(404).json({ error: "Order not found" });
+    }
 
     const { name, phone, location, items, total, created_at } = order;
 
-    // insert into order_history
+    // 2. Insert it into order_history
     db.run(`
       INSERT INTO order_history (name, phone, location, items, total, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `, [name, phone, location, items, total, created_at], function (insertErr) {
       if (insertErr) {
-        console.error("❌ Failed to move order to history:", insertErr);
+        console.error("❌ Insert to history failed:", insertErr);
         return res.status(500).json({ error: "Insert failed" });
       }
 
-      // delete from orders
+      // 3. Delete from original orders
       db.run("DELETE FROM orders WHERE id = ?", [orderId], function (deleteErr) {
         if (deleteErr) {
-          console.error("❌ Failed to delete from orders:", deleteErr);
+          console.error("❌ Delete from orders failed:", deleteErr);
           return res.status(500).json({ error: "Delete failed" });
         }
 
