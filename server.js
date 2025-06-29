@@ -30,6 +30,18 @@ function initializeDatabase() {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      db.run(`
+  CREATE TABLE IF NOT EXISTS order_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    location TEXT NOT NULL,
+    items TEXT NOT NULL,
+    total TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
 
       db.run(`
         CREATE TABLE IF NOT EXISTS country_requests (
@@ -115,21 +127,7 @@ app.get("/orders/history", (req, res) => {
     });
   });
 
-  app.get("/orders/history", (req, res) => {
-    db.all(`SELECT * FROM orders WHERE status = 'completed' ORDER BY created_at DESC`, [], (err, rows) => {
-      if (err) return res.status(500).json({ error: "Database error" });
-
-      try {
-        const history = rows.map(row => ({
-          ...row,
-          items: JSON.parse(row.items || "[]"),
-        }));
-        res.json(history);
-      } catch (parseErr) {
-        res.status(500).json({ error: "Data processing error" });
-      }
-    });
-  });
+  
 
   app.get("/admin/orders", (req, res) => {
     db.all("SELECT * FROM orders ORDER BY created_at DESC", [], (err, rows) => {
@@ -148,19 +146,34 @@ app.get("/orders/history", (req, res) => {
   const { orderId } = req.body;
   if (!orderId) return res.status(400).json({ error: "Missing orderId" });
 
-  db.run("UPDATE orders SET status = 'completed' WHERE id = ?", [orderId], function (err) {
-    if (err) {
-      console.error("❌ Failed to update order status:", err);
-      return res.status(500).json({ error: "Database error" });
-    }
+  db.get("SELECT * FROM orders WHERE id = ?", [orderId], (err, order) => {
+    if (err || !order) return res.status(404).json({ error: "Order not found" });
 
-    if (this.changes === 0) {
-      return res.status(404).json({ error: "Order not found or already completed" });
-    }
+    const { name, phone, location, items, total, created_at } = order;
 
-    res.json({ success: true });
+    // insert into order_history
+    db.run(`
+      INSERT INTO order_history (name, phone, location, items, total, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [name, phone, location, items, total, created_at], function (insertErr) {
+      if (insertErr) {
+        console.error("❌ Failed to move order to history:", insertErr);
+        return res.status(500).json({ error: "Insert failed" });
+      }
+
+      // delete from orders
+      db.run("DELETE FROM orders WHERE id = ?", [orderId], function (deleteErr) {
+        if (deleteErr) {
+          console.error("❌ Failed to delete from orders:", deleteErr);
+          return res.status(500).json({ error: "Delete failed" });
+        }
+
+        res.json({ success: true });
+      });
+    });
   });
 });
+
 
   // Country requests
   app.post("/country-requests", (req, res) => {
@@ -247,6 +260,31 @@ app.delete('/orders/:orderId', (req, res) => {
   const id = req.params.orderId;
   // delete order from db by id
   // send 200 if success, 404 if not found, etc
+});
+app.get("/history", (req, res) => {
+  db.all("SELECT * FROM order_history ORDER BY created_at DESC", [], (err, rows) => {
+    if (err) return res.status(500).json({ error: "Database error" });
+
+    try {
+      const history = rows.map(row => ({
+        ...row,
+        items: JSON.parse(row.items || "[]"),
+      }));
+      res.json(history);
+    } catch (parseErr) {
+      res.status(500).json({ error: "Data parsing error" });
+    }
+  });
+});
+app.delete('/history/:id', (req, res) => {
+  const id = req.params.id;
+
+  db.run(`DELETE FROM order_history WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ success: false, error: "DB error" });
+    if (this.changes === 0) return res.status(404).json({ success: false, error: "Not found" });
+
+    res.json({ success: true, message: "History entry deleted" });
+  });
 });
 
   const PORT = process.env.PORT || 10000;
